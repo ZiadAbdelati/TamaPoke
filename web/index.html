@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TamaPoke · Installer</title>
+<title>TamaPoke + Chiikawa · Installer</title>
 <style>
   :root { --bg:#f2efe1; --ink:#2a2a36; --accent:#4f93c4; --ok:#58b868; --bad:#e8503a; --track:#d8d2bd; }
   * { box-sizing: border-box; }
@@ -35,8 +35,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🐢 TamaPoke</h1>
-  <p class="sub">A 151-Pokémon tamagotchi for the Waveshare ESP32-S3-Touch-AMOLED-1.75.
+  <h1>TamaPoke + Chiikawa</h1>
+  <p class="sub">151 Pokémon + Chiikawa, Usagi and Hachiware for the Waveshare ESP32-S3-Touch-AMOLED-1.75.
      Install it from your browser — no Arduino, no drivers.</p>
 
   <p class="unsupported" id="unsupported">
@@ -47,7 +47,7 @@
   <div class="step">
     <p>Plug the board in via USB and press install. Pick the port and wait.</p>
     <esp-web-install-button manifest="manifest.json">
-      <button slot="activate">⚡ Install TamaPoke</button>
+      <button slot="activate">⚡ Install TamaPoke + Chiikawa</button>
       <span slot="unsupported">Browser not supported (use Chrome/Edge).</span>
       <span slot="not-allowed">Needs HTTPS.</span>
     </esp-web-install-button>
@@ -61,7 +61,7 @@
   <div class="step">
     <p>Put a microSD into the board (it formats itself). Press <b>Connect board</b>
        and then <b>Load sprites</b>: they download and copy over USB automatically
-       (~40 MB, a few minutes). Don't remove the card.</p>
+       (~41 MB, a few minutes). Don't remove the card.</p>
     <p class="note">Close the step-1 install tab first (only one program can use
        the port at a time).</p>
     <div class="row">
@@ -69,20 +69,36 @@
       <button id="auto" disabled>⬇️ Load sprites</button>
     </div>
     <p class="note">Have your own <code>.bin</code> files? <label style="cursor:pointer;text-decoration:underline">pick them manually<input id="files" type="file" accept=".bin" multiple disabled hidden></label></p>
-    <p class="note">🎨 Want to make your own sprites? See <a href="https://github.com/socquique/TamaPoke#generate-and-load-the-sprites-yourself" target="_blank">how to generate &amp; load them</a> in the repo.</p>
+    <p class="note">🎨 Want to make your own sprites? See <a href="https://github.com/ZiadAbdelati/TamaPoke/tree/chiikawa-companions#generate-and-load-the-sprites-yourself" target="_blank">how to generate &amp; load them</a> in the repo.</p>
     <div class="bar" id="bar"><div></div></div>
     <pre id="log"></pre>
   </div>
 
+  <h2>Pokémon + Chiikawa companions</h2>
+  <p>All 151 Pokémon and their shiny sprites, plus Chiikawa, Usagi and Hachiware.
+     Raise one pet at a time. Pokémon hatches and evolutions stay registered in your Pokédex
+     after farewell or release. Companions have their own collection and medal totals.</p>
+  <div class="row" style="justify-content:center;flex-wrap:wrap">
+    <figure style="margin:0;text-align:center"><img src="chiikawa-preview.gif" style="image-rendering:pixelated" width="128" height="144" alt="Chiikawa animation preview"><figcaption>Chiikawa</figcaption></figure>
+    <figure style="margin:0;text-align:center"><img src="usagi-preview.gif" style="image-rendering:pixelated" width="128" height="144" alt="Usagi animation preview"><figcaption>Usagi</figcaption></figure>
+    <figure style="margin:0;text-align:center"><img src="hachiware-preview.gif" style="image-rendering:pixelated" width="128" height="144" alt="Hachiware animation preview"><figcaption>Hachiware</figcaption></figure>
+  </div>
+  <p>At the starter screen, choose <b>Chiikawa companions</b> or the Pokémon roster.
+     After a pet leaves, tap <b>Choose next pet</b> on its egg to switch rosters.
+     An egg hatches after three taps or about three minutes. You can keep a pet as long
+     as you like; evolving and saying farewell require your confirmation.</p>
+  <p class="note">This companion build has automated firmware and game-logic checks,
+     but has not yet been tested on a physical board. Finished animation files need
+     the microSD sprite-loading step above. Without them, companion portraits are a simple fallback.</p>
   <h2>How to play</h2>
   <p>Care for your egg until it hatches, feed it, play, train it and complete them
      all. Tap the creature to pet it; swipe to open the Pokédex (sideways), the
      stat card (up) or set the clock (down); the physical PWR button turns the
      screen off (short press) or everything off (long press).
-     More in the <a href="https://github.com/socquique/TamaPoke" target="_blank">repository</a>.</p>
+     More in the <a href="https://github.com/ZiadAbdelati/TamaPoke/tree/chiikawa-companions" target="_blank">repository</a>.</p>
 
   <p class="note">Sprites from <a href="https://github.com/PMDCollab/SpriteCollab" target="_blank">PMD SpriteCollab</a> (CC BY-NC).
-     Pokémon is a ™ of Nintendo / Game Freak. Non-commercial project.</p>
+     Pokémon is a ™ of Nintendo / Game Freak. Chiikawa characters belong to Nagano; companion sheets are AI-generated fan artwork. Non-commercial project.</p>
 </div>
 
 <!-- version exacta (no el rango flotante @10) con Subresource Integrity, para
