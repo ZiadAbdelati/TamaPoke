@@ -1,3 +1,10 @@
+> **Chiikawa companion prototype:** This fork adds Chiikawa, Usagi, and Hachiware
+> in a separate pet roster alongside the original 151 Pokemon. Start with the
+> **Chiikawa companions** button on the starter screen, or **Choose next pet**
+> on an egg. Includes temporary code-drawn portraits and a custom animation
+> importer. See [companion setup and development status](docs/CHIIKAWA.md).
+> Build this fork's firmware; upstream prebuilt installer files do not include it.
+
 # TamaPoke
 
 [![Flash in browser](https://img.shields.io/badge/flash-in%20browser-FF6B00?logo=googlechrome&logoColor=white)](https://socquique.github.io/TamaPoke/web/)

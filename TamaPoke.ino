@@ -46,6 +46,8 @@ SdMon mon;          // sprite B/N (respaldo y minijuego si no hay PMD)
 PmdMon pmd;         // sprite PMD multi-accion (pantalla principal)
 PmdMon evoPmd;      // forma anterior, solo durante el parpadeo de evolucion
 int16_t monFor = -2;
+uint8_t companionFor = 255;
+bool companionSelect = false;
 bool monShinyFor = false;
 
 // comportamiento del bicho en pantalla
@@ -240,19 +242,22 @@ void setup() {
 
 // carga/descarga el sprite de SD cuando cambia la especie
 void ensureMon() {
-  if (pet.speciesId == monFor && monShinyFor == pet.shiny && !sdDirty) return;
+  if (pet.speciesId == monFor && companionFor == pet.companionId && monShinyFor == pet.shiny && !sdDirty) return;
   // los ficheros recien recibidos pueden incluir un thumbs.bin nuevo, que se
   // cargaba solo en setup(): sin esto no se veia en la galeria hasta reiniciar
   if (sdDirty) { thumbs.unload(); thumbs.load(); }
   sdDirty = false;
   monFor = pet.speciesId;
+  companionFor = pet.companionId;
   monShinyFor = pet.shiny;
   mon.unload();
   pmd.unload();
   beh.x = beh.targetX = 233;
   beh.mode = 0;
   beh.until = 0;
-  if (pet.speciesId >= 1 && pet.speciesId <= DEX_COUNT) {
+  if (!pet.isEgg() && pet.isCompanion()) {
+    pmd.loadPath(COMPANIONS[pet.companionId].spritePath);
+  } else if (pet.isPokemon()) {
     pmd.load(pet.speciesId, pet.shiny);          // principal: PMD
     if (!pmd.loaded) mon.load(pet.speciesId, pet.shiny);  // respaldo: B/N
   }
@@ -371,11 +376,15 @@ void handleSerial() {
   } else if (line.startsWith("SPEC ")) {
     int n = line.substring(5).toInt();
     if (n >= 1 && n <= DEX_COUNT) {
+      pet.companionId = COMPANION_NONE;
       pet.prevSpeciesId = pet.speciesId;
       pet.speciesId = n;
       Serial.printf("especie #%d %s\n", n, DEX_TBL[n].name);
     }
     Serial.println("DONE");
+  } else if (line.startsWith("COMPANION ")) {
+    int id = line.substring(10).toInt();
+    Serial.println(id >= 1 && id <= COMPANION_COUNT && pet.chooseCompanion(id) ? "DONE" : "ERR: choose on an egg (1=Chiikawa 2=Usagi 3=Hachiware)");
   } else if (line.startsWith("LVL ")) {
     pet.ageMinutes = (uint32_t)line.substring(4).toInt() * MINUTES_PER_LEVEL;
     Serial.println("DONE");
@@ -407,7 +416,7 @@ void handleSerial() {
     Serial.println();
     Serial.println("DONE");
   } else if (line == "SHINY") {  // alterna shiny del actual (pruebas)
-    pet.shiny = !pet.shiny;
+    if (pet.isPokemon()) pet.shiny = !pet.shiny;
     Serial.printf("shiny=%d\n", pet.shiny);
     Serial.println("DONE");
   } else if (line.startsWith("NICK ")) {
@@ -458,7 +467,7 @@ void handleSerial() {
                   pet.trAtk, pet.trDef, pet.trSpe, pet.berryKnown);
     Serial.printf("shiny=%d streak=%u/%u bond=%u medals=0x%X(%u) nick=%s\n",
                   pet.shiny, pet.streak, pet.bestStreak, pet.bond, pet.medals,
-                  pet.totalMedals, pet.nick);
+                  pet.isCompanion() ? pet.companionMedals : pet.totalMedals, pet.nick);
     Serial.println("DONE");
   }
 }
@@ -596,11 +605,24 @@ void onSwipe(int dir) {
 
 void onTap(int16_t x, int16_t y) {
   // Serial.printf("TOUCH %d %d\n", x, y);  // diagnostico (silenciado: satura el log)
-  if (pet.awaitingStarter()) {  // primera partida: elegir inicial
+  if (pet.awaitingStarter()) {  // roster selection; Pokemon and companions are separate
+    if (x >= 93 && x <= 373 && y >= 360 && y <= 400) {
+      companionSelect = !companionSelect;
+      sfxPlay(SFX_TAP);
+      return;
+    }
+    if (!companionSelect && pet.registeredCount() > 0) {
+      if (x >= 70 && x <= 396 && y >= STARTER_ROW_Y && y <= STARTER_ROW_Y + STARTER_ROW_H) {
+        pet.choosePokemonEgg();
+        sfxPlay(SFX_TAP);
+      }
+      return;
+    }
     for (int i = 0; i < 3; i++) {
       int ry = STARTER_ROW_Y + i * (STARTER_ROW_H + STARTER_ROW_GAP);
       if (x >= 70 && x <= 396 && y >= ry && y <= ry + STARTER_ROW_H) {
-        pet.chooseStarter(STARTER_DEX[i]);
+        if (companionSelect) pet.chooseCompanion(i + 1);
+        else pet.chooseStarter(STARTER_DEX[i]);
         sfxPlay(SFX_TAP);
         break;
       }
@@ -617,6 +639,11 @@ void onTap(int16_t x, int16_t y) {
   }
   if (clockOpen) {
     clockTap(x, y);
+    return;
+  }
+  if (pet.isEgg() && !galleryOpen && !clockOpen && x >= 93 && x <= 373 && y >= 380 && y <= 420) {
+    companionSelect = pet.isCompanion();
+    pet.openPetSelection();
     return;
   }
   if (pet.ceremony) return;  // durante la despedida no hay botones
@@ -826,24 +853,35 @@ void drawScene(uint8_t biome, uint32_t now, bool night) {
 void renderStarterSelect() {
   gfx->fillScreen(RGB565_BLACK);
   gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
-  const char *t = T(S_CHOOSE_STARTER);
+  const char *t = companionSelect ? "Choose companion" : pet.registeredCount() > 0 ? "Pokemon egg" : T(S_CHOOSE_STARTER);
   gfx->setTextColor(UI_INK);
   setSize(2);
   setCur(centerX(t, 2), 68);
   printT(t);
-  for (int i = 0; i < 3; i++) {
+  bool normalEgg = !companionSelect && pet.registeredCount() > 0;
+  for (int i = 0; i < (normalEgg ? 1 : 3); i++) {
     int16_t d = STARTER_DEX[i];
-    const DexEntry &de = DEX_TBL[d];
+    uint16_t accent = companionSelect ? COMPANIONS[i + 1].traits.accent : DEX_TBL[d].accent;
     int ry = STARTER_ROW_Y + i * (STARTER_ROW_H + STARTER_ROW_GAP);
-    gfx->fillRoundRect(70, ry, 326, STARTER_ROW_H, 14, lerp565(de.accent, UI_WHITE, 6, 8));
-    gfx->drawRoundRect(70, ry, 326, STARTER_ROW_H, 14, de.accent);
-    const uint8_t *th = thumbs.get(d);     // miniatura del inicial (si la SD esta lista)
+    gfx->fillRoundRect(70, ry, 326, STARTER_ROW_H, 14, lerp565(accent, UI_WHITE, 6, 8));
+    gfx->drawRoundRect(70, ry, 326, STARTER_ROW_H, 14, accent);
+    const uint8_t *th = companionSelect || normalEgg ? nullptr : thumbs.get(d);     // miniatura del inicial (si la SD esta lista)
     if (th) drawThumb(th, 76, ry - 5, 3, false);
+    if (companionSelect) drawCompanion(i + 1, 120, ry + 68, 1, MOOD_HAPPY);
     gfx->setTextColor(UI_INK);
     setSize(3);
-    setCur(178, ry + 24);
-    printT(dexName(d));
+    setCur(normalEgg ? 130 : 178, ry + 24);
+    printT(companionSelect ? COMPANIONS[i + 1].name : normalEgg ? "Pokemon egg" : dexName(d));
+    if (companionSelect && pet.isCompanionRegistered(i + 1)) {
+      setSize(1); setCur(178, ry + 50); printT("Met before");
+    }
   }
+  gfx->fillRoundRect(93, 360, 280, 40, 12, UI_TRACK);
+  gfx->setTextColor(UI_WHITE);
+  setSize(2);
+  const char *switchLabel = companionSelect ? "Pokemon roster" : "Chiikawa companions";
+  setCur(centerX(switchLabel, 2), 372);
+  printT(switchLabel);
   gfx->flush();
 }
 
@@ -1002,14 +1040,14 @@ void render() {
   gNight = pet.sleeping || h < 6 || h >= 20;
   // drawScene cubre los 466x466 completos: sin fillScreen(NEGRO) previo para
   // que un flush DMA solapado nunca capture negro a medias (anti-parpadeo)
-  drawScene(pet.isEgg() ? 0 : DEX_TBL[pet.speciesId].biome, millis(), gNight);
+  drawScene(pet.isEgg() ? 0 : pet.traits().biome, millis(), gNight);
 
   if (pet.ceremony) {
-    const DexEntry &d = DEX_TBL[pet.speciesId];
+    const PetTraits d = pet.traits();
     const char *msg = (pet.ceremony == CER_FAREWELL) ? T(S_FAREWELL)
                       : (pet.ceremony == CER_RUNAWAY) ? T(S_RUNAWAY)
                                                       : T(S_GOODBYE);
-    drawHeader(dexName(pet.speciesId), d.accent, msg);
+    drawHeader(pet.speciesName(), d.accent, msg);
     drawCeremony();
     gfx->flush();
     return;
@@ -1037,10 +1075,14 @@ void render() {
     setSize(2);
     setCur(centerX(reg, 2), 348);
     printT(reg);
+    gfx->fillRoundRect(93, 380, 280, 40, 12, UI_TRACK);
+    gfx->setTextColor(UI_WHITE);
+    setCur(centerX("Choose next pet", 2), 392);
+    printT("Choose next pet");
   } else {
-    const DexEntry &d = DEX_TBL[pet.speciesId];
+    const PetTraits d = pet.traits();
     char name[28];
-    const char *base = pet.nick[0] ? pet.nick : dexName(pet.speciesId);
+    const char *base = pet.nick[0] ? pet.nick : pet.speciesName();
     snprintf(name, sizeof(name), T(S_NAME_FMT), pet.shiny ? "*" : "", base, pet.level());
     drawHeader(name, gNight ? UI_INK_NIGHT : d.accent, statusMsg());
     drawStreakBadge();
@@ -1090,7 +1132,7 @@ void render() {
       // de 28 y snprintf corta a mitad de una secuencia de 3 bytes, que la
       // fuente ya no sabe dibujar.
       char q[48];
-      snprintf(q, sizeof(q), T(S_RELEASE_FMT), dexName(pet.speciesId));
+      snprintf(q, sizeof(q), T(S_RELEASE_FMT), pet.speciesName());
       gfx->setTextColor(UI_INK);
       setSize(2);
       setCur(centerX(q, 2), 196);
@@ -1320,7 +1362,7 @@ void drawGameScene() {
     gfx->fillRect(0, y, 466, 8, lerp565(top, bot, y, hor));
   if (night)
     for (auto &st : STARS) gfx->fillRect(st[0], st[1], 4, 4, UI_WHITE);
-  uint8_t bio = pet.isEgg() ? 0 : DEX_TBL[pet.speciesId].biome;
+  uint8_t bio = pet.isEgg() ? 0 : pet.traits().biome;
   uint16_t soil = BIOME_SOIL[bio < 6 ? bio : 0];
   if (night) soil = lerp565(soil, C565(0x16, 0x1c, 0x30), 9, 16);
   gfx->fillRect(0, hor, 466, 466 - hor, soil);
@@ -1392,6 +1434,8 @@ void renderGame() {
     uint8_t act = (ballX > gamePetX + 4) ? PMD_WALKR : (ballX < gamePetX - 4) ? PMD_WALKL : PMD_IDLE;
     if (!pmd.has(act)) act = PMD_IDLE;
     drawPmdAct(act, (int)gamePetX, 394, millis(), true, false, 3);
+  } else if (pet.isCompanion()) {
+    drawCompanion(pet.companionId, (int)gamePetX, 394, 2, pet.mood());
   } else if (mon.loaded) {
     int s = (mon.h * 2 > 130) ? 1 : 2;
     int w = mon.w * s, h = mon.h * s;
@@ -1635,8 +1679,8 @@ void drawMedalBadge(int x, int y, int i) {
 
 // pagina 0: perfil (retrato grande, identidad, racha, vinculo, baya)
 void renderCardProfile() {
-  const DexEntry &d = DEX_TBL[pet.speciesId];
-  const char *nm = pet.nick[0] ? pet.nick : dexName(pet.speciesId);
+  const PetTraits d = pet.traits();
+  const char *nm = pet.nick[0] ? pet.nick : pet.speciesName();
   char head[32];
   snprintf(head, sizeof(head), T(S_NAME_FMT), pet.shiny ? "*" : "", nm, pet.level());
   gfx->setTextColor(d.accent);
@@ -1652,7 +1696,7 @@ void renderCardProfile() {
   setCur(centerX(head, hts), hts == 3 ? 34 : 40);
   printT(head);
   if (pet.nick[0]) {  // especie real bajo el apodo
-    const char *sp = dexName(pet.speciesId);
+    const char *sp = pet.speciesName();
     char par[32];
     snprintf(par, sizeof(par), "(%s)", sp);
     gfx->setTextColor(UI_TRACK);
@@ -1663,6 +1707,7 @@ void renderCardProfile() {
 
   // retrato grande animado
   if (pmd.loaded) drawPmdAct(PMD_IDLE, CX, 206, millis(), true, false, 4);
+  else if (pet.isCompanion()) drawCompanion(pet.companionId, CX, 206, 2, pet.mood());
 
   // racha con llama
   int sx = 138, sy = 224;
@@ -1718,16 +1763,19 @@ void renderCardStats() {
 void renderCardMedals() {
   int got = 0;
   for (int i = 0; i < MED_COUNT; i++)
-    if (pet.hasMedal(1 << i)) got++;
+    if (pet.hasMedal(1 << i) && (!pet.isCompanion() || (1 << i) != MED_FINAL)) got++;
   char head[24];
-  snprintf(head, sizeof(head), T(S_MEDALS_FMT), got, MED_COUNT);
+  snprintf(head, sizeof(head), T(S_MEDALS_FMT), got, pet.isCompanion() ? MED_COUNT - 1 : MED_COUNT);
   gfx->setTextColor(UI_INK);
   setSize(3);
   setCur(centerX(head, 3), 48);
   printT(head);
 
+  int slot = 0;
   for (int i = 0; i < MED_COUNT; i++) {
-    int x = 28 + (i % 2) * 206, y = 104 + (i / 2) * 54;
+    if (pet.isCompanion() && (1 << i) == MED_FINAL) continue;
+    int x = 28 + (slot % 2) * 206, y = 104 + (slot / 2) * 54;
+    slot++;
     bool g = pet.hasMedal(1 << i);
     gfx->fillRoundRect(x, y, 196, 44, 10, g ? UI_BAR_OK : UI_TRACK);
     if (g) {  // marca de conseguida
@@ -1747,7 +1795,7 @@ void renderCardMedals() {
 // pagina 3: progreso (nivel, evolucion, descuidos) — saca a la luz mecanicas
 // que antes eran invisibles (cuanto falta para subir/evolucionar y por que)
 void renderCardProgress() {
-  const DexEntry &d = DEX_TBL[pet.speciesId];
+  const PetTraits d = pet.traits();
   gfx->setTextColor(UI_INK);
   setSize(3);
   setCur(centerX(T(S_PROGRESS), 3), 44);
@@ -1781,7 +1829,7 @@ void renderCardProgress() {
   const char *evo;
   uint16_t evoCol = UI_INK;
   if (d.evolvesTo == 0) {
-    evo = T(S_FINAL_FORM);
+    evo = pet.isCompanion() ? "No evolution" : T(S_FINAL_FORM);
   } else {
     int needed = d.evolveLevel + pet.careMistakes;
     if (pet.level() >= needed) {
@@ -2159,7 +2207,7 @@ void drawFarewellButton() {
   gfx->fillRoundRect(x, y, w, h, 16, UI_BAR_WARN);
   gfx->drawRoundRect(x, y, w, h, 16, UI_INK);
   char buf[52];
-  const char *nm = pet.nick[0] ? pet.nick : dexName(pet.speciesId);
+  const char *nm = pet.nick[0] ? pet.nick : pet.speciesName();
   snprintf(buf, sizeof(buf), T(S_FAREWELL_BTN), nm);
   gfx->setTextColor(UI_INK);
   setSize(2);
@@ -2176,7 +2224,7 @@ void drawRunawayButton() {
   gfx->fillRoundRect(x, y, w, h, 16, C565(0x3a, 0x44, 0x5a));
   gfx->drawRoundRect(x, y, w, h, 16, C565(0x70, 0x80, 0x98));
   char buf[52];
-  const char *nm = pet.nick[0] ? pet.nick : dexName(pet.speciesId);
+  const char *nm = pet.nick[0] ? pet.nick : pet.speciesName();
   snprintf(buf, sizeof(buf), T(S_RUNAWAY_BTN), nm);
   gfx->setTextColor(C565(0xc8, 0xd2, 0xe0));
   setSize(2);
@@ -2227,6 +2275,11 @@ void drawPet() {
   }
   if (mon.loaded) {
     drawPetSD();
+    return;
+  }
+  if (pet.isCompanion()) {
+    drawCompanion(pet.companionId, CX, PET_GROUND, 3, pet.mood());
+    if (pet.showHeart()) drawMap(SPR_HEART, 32, CX + 50, PET_GROUND - 190, 2, false);
     return;
   }
   int fi = flashIdxForDex(pet.speciesId);
@@ -2596,5 +2649,58 @@ void drawMap(const char *const *map, int n, int x, int y, int s, bool silhouette
       if (ch == '.') continue;
       gfx->fillRect(x + c * s, y + r * s, s, s, silhouette ? INK_K : spriteColor(ch));
     }
+  }
+}
+
+
+// Prototype companion portraits. Replace with TPK2 art on SD when available.
+// Geometry stays code-native; this is deliberately separate from Pokemon sprites.
+void drawCompanion(uint8_t id, int cx, int ground, int scale, PetMood mood) {
+  if (!validCompanion(id)) return;
+  int bob = mood == MOOD_HAPPY ? ((millis() / 500) % 2) * scale : 0;
+  int s = scale, y = ground - 30 * s - bob;
+  uint16_t ink = UI_INK, fur = id == COMPANION_USAGI ? 0xFF14 : UI_WHITE;
+  uint16_t blue = COMPANIONS[COMPANION_HACHIWARE].traits.accent;
+  gfx->fillCircle(cx - 7*s, ground - 4*s - bob, 5*s, ink);
+  gfx->fillCircle(cx + 7*s, ground - 4*s - bob, 5*s, ink);
+  gfx->fillRoundRect(cx - 14*s, y, 28*s, 27*s, 10*s, ink);
+  gfx->fillRoundRect(cx - 13*s, y + s, 26*s, 25*s, 9*s, fur);
+  if (id == COMPANION_USAGI) {
+    for (int side : { -1, 1 }) {
+      gfx->fillRoundRect(cx + side*10*s - 4*s, y - 35*s, 8*s, 22*s, 4*s, ink);
+      gfx->fillRoundRect(cx + side*10*s - 3*s, y - 34*s, 6*s, 20*s, 3*s, fur);
+      gfx->fillRoundRect(cx + side*10*s - s, y - 31*s, 2*s, 12*s, s, 0xFBB7);
+    }
+  } else if (id == COMPANION_HACHIWARE) {
+    for (int side : { -1, 1 }) {
+      gfx->fillTriangle(cx + side*23*s, y - 12*s, cx + side*22*s, y - 30*s, cx + side*7*s, y - 18*s, ink);
+      gfx->fillTriangle(cx + side*21*s, y - 14*s, cx + side*21*s, y - 27*s, cx + side*9*s, y - 18*s, blue);
+    }
+  } else {
+    for (int side : { -1, 1 }) {
+      gfx->fillCircle(cx + side*20*s, y - 19*s, 7*s, ink);
+      gfx->fillCircle(cx + side*20*s, y - 19*s, 6*s, fur);
+    }
+  }
+  gfx->fillRoundRect(cx - 27*s, y - 23*s, 54*s, 38*s, 17*s, ink);
+  gfx->fillRoundRect(cx - 26*s, y - 22*s, 52*s, 36*s, 16*s, fur);
+  if (id == COMPANION_HACHIWARE) {
+    gfx->fillRoundRect(cx - 25*s, y - 22*s, 50*s, 18*s, 10*s, blue);
+    gfx->fillTriangle(cx, y - 19*s, cx - 11*s, y - 4*s, cx + 11*s, y - 4*s, UI_WHITE);
+  }
+  gfx->fillCircle(cx - 18*s, y + 3*s, 4*s, 0xFBB7);
+  gfx->fillCircle(cx + 18*s, y + 3*s, 4*s, 0xFBB7);
+  for (int side : { -1, 1 }) {
+    int ex = cx + side*10*s;
+    if (mood == MOOD_SLEEPING) gfx->fillRect(ex - 3*s, y - 2*s, 6*s, s, ink);
+    else {
+      gfx->fillCircle(ex, y - 3*s, 3*s, ink);
+      gfx->fillCircle(ex + s, y - 4*s, s, UI_WHITE);
+    }
+  }
+  if (mood == MOOD_EATING) gfx->fillCircle(cx, y + 5*s, 3*s, ink);
+  else {
+    gfx->drawLine(cx - 3*s, y + 3*s, cx, y + (mood == MOOD_SAD ? 2 : 6)*s, ink);
+    gfx->drawLine(cx, y + (mood == MOOD_SAD ? 2 : 6)*s, cx + 3*s, y + 3*s, ink);
   }
 }

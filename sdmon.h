@@ -39,6 +39,7 @@ struct PmdMon {
   PmdAct acts[PMD_NACTS];
 
   bool load(uint8_t dexNum, bool shiny = false);
+  bool loadPath(const char *path);  // any TPK2 pet, independent of the Pokemon dex
   void unload();
   bool has(uint8_t a) const { return loaded && a < PMD_NACTS && acts[a].frames > 0; }
 };

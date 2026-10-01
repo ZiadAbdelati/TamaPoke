@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
+#include "companions.h"
 
 // 1 tick = 1 minuto de juego. Baja este valor para probar mas rapido
 // (p. ej. 5000UL = las estadisticas caen 12x mas rapido).
@@ -57,7 +58,10 @@ public:
   bool berryKnown = false;  // ya descubrio su baya favorita
   bool shiny = false;       // variante de color rara (se sortea en el huevo)
   uint32_t ageMinutes = 0;
-  int16_t speciesId = -1;      // numero de Pokedex (1-151), -1 = huevo
+  uint8_t companionId = COMPANION_NONE;  // separate identity, retained for next egg
+  uint8_t companionReg = 0;              // three bits, independent of dex/shinies
+  uint16_t companionMedals = 0;          // separate lifetime medal counter
+  int16_t speciesId = -1;      // Pokemon dex 1-151; 0 = live companion; -1 = egg
   int16_t prevSpeciesId = -1;  // para la animacion de evolucion
   uint8_t careMistakes = 0;   // descuidos: cada uno retrasa la evolucion 1 nivel
   bool sleeping = false;
@@ -87,7 +91,7 @@ public:
   void feedBerry(uint8_t color);  // 0 roja, 1 azul, 2 verde
   void feedCandy();
   bool lovesBerry(uint8_t color) const {
-    return !isEgg() && (speciesId % 3) == color;  // gusto oculto por especie
+    return !isEgg() && favoriteBerry() == color;  // gusto oculto por especie
   }
   void playResult(uint8_t score);  // recompensa del minijuego (entrena VEL)
   uint8_t trainStrength(uint16_t hits);  // saco de entrenamiento (entrena FUE)
@@ -109,6 +113,18 @@ public:
   void startRunaway();   // tambien usable desde la consola serie (RUN)
 
   bool isEgg() const { return speciesId < 0; }
+  bool isCompanion() const { return validCompanion(companionId); }
+  bool isPokemon() const { return !isCompanion() && speciesId >= 1 && speciesId <= 151; }
+  const char *speciesName() const;
+  PetTraits traits() const;
+  uint8_t favoriteBerry() const {
+    return isCompanion() ? COMPANIONS[companionId].favoriteBerry : speciesId % 3;
+  }
+  bool isCompanionRegistered(uint8_t id) const {
+    return validCompanion(id) && (companionReg & (1 << (id - 1)));
+  }
+  bool chooseCompanion(uint8_t id);
+  void openPetSelection() { if (isEgg()) { starterPick = true; save(); } }
   uint8_t eggCracks() const { return eggTaps; }
   bool eating() const { return timeLeft(eatUntil) > 0; }
   bool showHeart() const { return timeLeft(heartUntil) > 0; }
@@ -127,7 +143,8 @@ public:
   void declineFarewell() { farDeclinedAge = ageMinutes + 1440; } // re-ofrece dentro de 1 dia
   // primera partida: el jugador elige inicial (Bulbasaur/Charmander/Squirtle)
   bool awaitingStarter() const { return starterPick; }
-  void chooseStarter(int16_t dex) { eggTarget = dex; starterPick = false; save(); }
+  void chooseStarter(int16_t dex);
+  void choosePokemonEgg();  // resumes normal Pokemon rarity/shiny rules
   void factoryReset() { prefs.clear(); }  // borra la NVS (test: comando serie WIPE)
   void dbgRunawayReady() { fullness = joy = energy = hygiene = 0; neglectTicks = RUNAWAY_TICKS; }  // test
   // uint16_t, no uint8_t: con MINUTES_PER_LEVEL=60 el nivel son las horas, asi

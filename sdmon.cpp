@@ -13,11 +13,16 @@ bool PmdMon::load(uint8_t dexNum, bool shiny) {
 
   char path[28];
   snprintf(path, sizeof(path), "/mons/p%s%03u.bin", shiny ? "s" : "", dexNum);
+  if (loadPath(path)) return true;
+  if (!shiny) return false;
+  snprintf(path, sizeof(path), "/mons/p%03u.bin", dexNum);
+  return loadPath(path);
+}
+
+bool PmdMon::loadPath(const char *path) {
+  unload();
+  if (!sdReady || !path) return false;
   File f = SD_MMC.open(path, FILE_READ);
-  if (!f && shiny) {  // sin shiny PMD: usa el normal
-    snprintf(path, sizeof(path), "/mons/p%03u.bin", dexNum);
-    f = SD_MMC.open(path, FILE_READ);
-  }
   if (!f) return false;
 
   uint32_t size = f.size();

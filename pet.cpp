@@ -19,12 +19,12 @@ void Pet::newEgg() {
   weight = 0;
   speciesId = -1;
   prevSpeciesId = -1;
-  eggTarget = pickEggSpecies();  // especie oculta segun rareza y pokedex
-  starterPick = (registeredCount() == 0);  // primera partida: el jugador elige inicial
+  eggTarget = isCompanion() ? 1 : pickEggSpecies();  // especie oculta segun rareza y pokedex
+  starterPick = !isCompanion() && (registeredCount() == 0);  // primera partida: el jugador elige inicial
   // sorteo shiny: 1/48 base, mejor con despedida y con racha/vinculo altos
   int shinyBase = (lastEnd == CER_FAREWELL ? 24 : 48) - careBonus();
   if (shinyBase < 8) shinyBase = 8;
-  eggShiny = (random(shinyBase) == 0);
+  eggShiny = !isCompanion() && (random(shinyBase) == 0);
   eggTaps = 0;
   fullness = 80;
   joy = 80;
@@ -213,6 +213,7 @@ bool Pet::lineHasUnregistered(int16_t base) const {
 }
 
 uint8_t Pet::eggRarity() const {
+  if (isCompanion()) return R_COMUN;
   return (eggTarget >= 1 && eggTarget <= 151) ? DEX_TBL[eggTarget].rarity : R_COMUN;
 }
 
@@ -303,11 +304,13 @@ void Pet::checkMedals() {
   if (berryKnown) medals |= MED_BERRY;
   if (streak >= 7) medals |= MED_STREAK7;
   if (bond >= 100) medals |= MED_BOND;
-  if (DEX_TBL[speciesId].evolvesTo == 0) medals |= MED_FINAL;
+  if (isPokemon() && traits().evolvesTo == 0) medals |= MED_FINAL;
   if (weight == 0 && level() >= 5 && careMistakes == 0) medals |= MED_FIT;
   uint16_t gained = medals & ~before;
   if (gained) {
-    for (uint16_t m = gained; m; m &= (m - 1)) totalMedals++;
+    for (uint16_t m = gained; m; m &= (m - 1)) {
+      if (isCompanion()) companionMedals++; else totalMedals++;
+    }
     newMedal = gained;
     medalUntil = millis() + 4000;
     if (!sleeping) sfxPlay(SFX_MEDAL);
@@ -326,13 +329,13 @@ static uint16_t calcStat(uint8_t base, uint8_t gene, uint16_t lvl, uint8_t tr) {
 }
 
 uint16_t Pet::atkStat() const {
-  return isEgg() ? 0 : calcStat(DEX_TBL[speciesId].bAtk, geneAtk, level(), trAtk);
+  return isEgg() ? 0 : calcStat(traits().bAtk, geneAtk, level(), trAtk);
 }
 uint16_t Pet::defStat() const {
-  return isEgg() ? 0 : calcStat(DEX_TBL[speciesId].bDef, geneDef, level(), trDef);
+  return isEgg() ? 0 : calcStat(traits().bDef, geneDef, level(), trDef);
 }
 uint16_t Pet::speStat() const {
-  return isEgg() ? 0 : calcStat(DEX_TBL[speciesId].bSpe, geneSpe, level(), trSpe);
+  return isEgg() ? 0 : calcStat(traits().bSpe, geneSpe, level(), trSpe);
 }
 
 uint16_t Pet::registeredCount() const {
@@ -346,7 +349,7 @@ uint16_t Pet::registeredCount() const {
 // despedida la dispara el usuario con el boton (no salta sola, para que la vea)
 bool Pet::canFarewellNow() const {
   return !isEgg() && !sleeping && ceremony == CER_NONE &&
-         DEX_TBL[speciesId].evolvesTo == 0 && ageMinutes >= FAREWELL_AGE_MIN;
+         traits().evolvesTo == 0 && ageMinutes >= FAREWELL_AGE_MIN;
 }
 
 // abandono total durante 1h: lista para escaparse. La dispara el usuario con el
@@ -357,7 +360,7 @@ bool Pet::canRunawayNow() const {
 
 void Pet::startFarewell() {
   if (isEgg() || ceremony != CER_NONE) return;
-  lastEnd = CER_FAREWELL;
+  if (!isCompanion()) lastEnd = CER_FAREWELL;
   ceremony = CER_FAREWELL;
   ceremonyUntil = millis() + CEREMONY_MS;
   heartUntil = ceremonyUntil;  // corazones durante toda la despedida
@@ -367,7 +370,7 @@ void Pet::startFarewell() {
 
 void Pet::startRunaway() {
   if (isEgg() || ceremony != CER_NONE) return;
-  lastEnd = CER_RUNAWAY;
+  if (!isCompanion()) lastEnd = CER_RUNAWAY;
   ceremony = CER_RUNAWAY;
   ceremonyUntil = millis() + CEREMONY_MS;
   sfxPlay(SFX_BYE);
@@ -376,7 +379,7 @@ void Pet::startRunaway() {
 
 void Pet::release() {
   if (isEgg() || ceremony != CER_NONE) return;
-  lastEnd = CER_RELEASE;
+  if (!isCompanion()) lastEnd = CER_RELEASE;
   ceremony = CER_RELEASE;
   ceremonyUntil = millis() + CEREMONY_MS;
   heartUntil = ceremonyUntil;
@@ -385,8 +388,8 @@ void Pet::release() {
 }
 
 void Pet::hatch() {
-  speciesId = eggTarget;
-  shiny = eggShiny;
+  speciesId = isCompanion() ? 0 : eggTarget;
+  shiny = !isCompanion() && eggShiny;
   // genes del individuo: 90-110% por stat (cada crianza es unica)
   geneAtk = 90 + random(21);
   geneDef = 90 + random(21);
@@ -398,7 +401,8 @@ void Pet::hatch() {
   medals = 0;
   newMedal = 0;
   nick[0] = 0;
-  registerSpecies(speciesId);  // criado = registrado en la pokedex
+  if (isCompanion()) companionReg |= 1 << (companionId - 1);
+  else registerSpecies(speciesId);  // criado = registrado en la pokedex
   checkMedals();     // por si nace ya en forma final (legendario)
   sfxPlay(SFX_HATCH);
   save();
@@ -409,7 +413,7 @@ void Pet::hatch() {
 // (ninguna estadistica por debajo de 40). NO evoluciona sola: la dispara el
 // usuario tocando al bicho (evolve()), para que vea la transformacion.
 bool Pet::canEvolveNow() const {
-  if (isEgg() || sleeping || ceremony != CER_NONE) return false;
+  if (!isPokemon() || sleeping || ceremony != CER_NONE) return false;
   const DexEntry &d = DEX_TBL[speciesId];
   if (d.evolvesTo == 0) return false;
   return level() >= (uint16_t)d.evolveLevel + careMistakes && lowestStat() >= 40;
@@ -544,7 +548,7 @@ void Pet::caress() {
 }
 
 void Pet::eggTap() {
-  if (!isEgg()) return;
+  if (!isEgg() || starterPick) return;
   if (++eggTaps >= 3) hatch();
   else save();
 }
@@ -577,6 +581,9 @@ void Pet::save() {
   prefs.putBool("stpk", starterPick);
   prefs.putBytes("dexsh", dexShinyReg, sizeof(dexShinyReg));
   prefs.putUInt("age", ageMinutes);
+  prefs.putUChar("comp", companionId);
+  prefs.putUChar("compreg", companionReg);
+  prefs.putUShort("compmed", companionMedals);
   prefs.putShort("dexn", speciesId);
   prefs.putShort("eggT2", eggTarget);
   prefs.putUChar("crack", eggTaps);
@@ -632,6 +639,18 @@ void Pet::load() {
     int8_t oldT = prefs.getChar("eggT", 0);
     eggTarget = (oldT >= 0 && oldT < 9) ? OLD2DEX[oldT] : 4;
   }
+  companionId = prefs.getUChar("comp", COMPANION_NONE);
+  companionReg = prefs.getUChar("compreg", 0) & 7;
+  companionMedals = prefs.getUShort("compmed", 0);
+  if (!validCompanion(companionId)) companionId = COMPANION_NONE;
+  if (isCompanion()) {
+    speciesId = speciesId < 0 ? -1 : 0;
+    shiny = eggShiny = false;
+  } else if (speciesId < -1 || speciesId == 0 || speciesId > DEX_COUNT) {
+    speciesId = -1;
+    starterPick = true;
+  }
+  if (eggTarget < 1 || eggTarget > DEX_COUNT) eggTarget = 4;
   eggTaps = prefs.getUChar("crack", 0);
   careMistakes = prefs.getUChar("mist", 0);
   sleeping = prefs.getBool("sleep", false);
@@ -648,5 +667,46 @@ void Pet::load() {
   strHi = prefs.getUShort("shi", 0);
   prefs.getString("nick", nick, sizeof(nick));
   // siembra: la mascota actual cuenta como criada (guardados antiguos)
-  if (speciesId >= 1) registerSpecies(speciesId);
+  if (isPokemon()) registerSpecies(speciesId);
+}
+
+
+const char *Pet::speciesName() const {
+  return isCompanion() ? COMPANIONS[companionId].name : dexName(speciesId);
+}
+
+PetTraits Pet::traits() const {
+  if (isCompanion()) return COMPANIONS[companionId].traits;
+  const DexEntry &d = DEX_TBL[isPokemon() ? speciesId : 0];
+  return { d.accent, d.biome, d.bAtk, d.bDef, d.bSpe, d.evolvesTo, d.evolveLevel };
+}
+
+bool Pet::chooseCompanion(uint8_t id) {
+  if (!isEgg() || !validCompanion(id)) return false;
+  companionId = id;
+  starterPick = false;
+  shiny = eggShiny = false;
+  save();
+  return true;
+}
+
+
+void Pet::choosePokemonEgg() {
+  if (!isEgg()) return;
+  if (isCompanion()) {
+    companionId = COMPANION_NONE;
+    eggTarget = pickEggSpecies();
+    int shinyBase = (lastEnd == CER_FAREWELL ? 24 : 48) - careBonus();
+    if (shinyBase < 8) shinyBase = 8;
+    eggShiny = random(shinyBase) == 0;
+  }
+  starterPick = false;
+  save();
+}
+
+void Pet::chooseStarter(int16_t dex) {
+  if (!isEgg() || dex < 1 || dex > DEX_COUNT) return;
+  choosePokemonEgg();
+  eggTarget = dex;
+  save();
 }
