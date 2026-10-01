@@ -1,4 +1,4 @@
-# Chiikawa companion prototype
+# Chiikawa companions
 
 This fork adds Chiikawa, Usagi, and Hachiware as a separate companion roster.
 The Pokemon dex is still exactly 151 entries. Companion IDs 1, 2, and 3 are
@@ -38,14 +38,48 @@ continues to show only Pokemon; companion roster rows display **Met before**.
 
 ## Artwork status
 
-The firmware includes simple code-drawn prototype portraits with idle bobbing,
-eating and sleeping expressions, including profile/minigame portraits. They
-work without an SD card. These are temporary approximations, not finished pixel
-sprite sheets. Custom SD animations take precedence over those portraits.
+The fork bundles AI-generated pixel-art sheets for all three characters, with
+idle/blinking, left/right walking, sleep, eating, sad/hurt, attack, pose, hop,
+nod, deep-breathing and sitting animations. The 4x3 base sheets and 4x3 gesture
+sheets are in `web/`. `python3 tools/build_companion_assets.py` converts them
+into TPK2 sprites and GIF previews. They are original generated fan artwork,
+not official Chiikawa assets. Character rights belong to Nagano.
 
-No new downloaded or official Chiikawa artwork is bundled. Use artwork you have
-permission to use and credit its author when adding sprite assets. The upstream
-MIT license covers code; it does not grant rights to franchise artwork.
+Use the browser installer's **Load sprites** step to load all 151 Pokemon,
+their shinies, gallery thumbnails and the three companions onto the microSD.
+The game uses these animations on its main screen, profile and minigame.
+Simple code-drawn portraits remain as a fallback without SD animation files,
+and for the small companion-selection rows. See COMPANION_ART.md for provenance.
+
+## Browser installer
+
+The Browser installer workflow builds this branch, runs the host tests and
+checks that the bundle contains all 306 files. GitHub Pages serves the output.
+The manifest flashes bootloader, partitions, boot selector and app separately;
+it does not write through the NVS saved-pet region. When updating, leave
+**Erase device** unchecked to retain your save. Erasing intentionally resets it.
+The stock SD sprites are retained and the three companion files are added.
+This page is for the Waveshare ESP32-S3 Touch AMOLED 1.75 with 16 MB flash
+and OPI PSRAM. Physical-device verification is still pending.
+
+## How collection works
+
+One active pet is raised at a time. Hatching registers a Pokemon, and evolving
+registers each new form. Those records and shiny records stay in the gallery
+when the pet leaves. The next Pokemon egg uses the original rarity rules and
+prefers evolution lines that you have not finished. Good care and farewell
+improve the original egg odds; legendaries unlock after 25 registered species.
+
+You can keep your pet indefinitely. You confirm evolution and farewell;
+farewell is offered at final form after three days. Long-press release lets
+you move on earlier. Leaving a pet retains its collection record, not a
+restorable individual with its nickname and stats. There is no pet storage box.
+After an ending, **Choose next pet** lets you choose either roster for the egg.
+Companions are selectable directly and have a separate three-character record.
+Switching never replaces a live pet and never resets the Pokemon gallery.
+All Pokemon species data, evolution and shiny rules, care mechanics, training,
+minigames, localized stock text and completion denominator remain in place.
+Player care streaks remain shared, as in the prototype. New selector text is English.
 
 ## Add polished animation strips
 
@@ -86,9 +120,9 @@ Output paths are `/mons/c_chiikawa.bin`, `/mons/c_usagi.bin`, and
 USB uploader. `tools/pack_bundle.py` automatically includes them when rebuilding
 the web sprite bundle. Pokemon thumbnail generation remains independent.
 
-The upstream prebuilt web firmware does not contain these changes. Build this
-fork's firmware before flashing; do not use the upstream installer expecting
-companion support. No new prebuilt firmware release is bundled yet.
+The upstream installer does not contain the companions. Use this fork's
+browser installer, or build this branch yourself. The installer is produced
+from source by the Browser installer workflow, rather than a GitHub Release.
 
 ## Validation
 
@@ -107,7 +141,7 @@ tooling tests and 8 companion packer tests pass. LeakSanitizer had to be disable
 locally because this environment prevents its process inspection; ASan/UBSan
 remained enabled. The language format check also passes.
 
-A real ESP32 firmware build and physical-device touch/display test are still
-required before treating this as a release. New selector strings are English;
+The ESP32 firmware build passes CI. Physical-device touch/display testing is
+still required before treating this as a verified hardware release. New selector strings are English;
 existing localized Pokemon UI is retained. Companion combat base stats are
 prototype balance values, not canonical franchise statistics.
