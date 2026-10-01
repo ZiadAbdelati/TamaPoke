@@ -936,3 +936,89 @@ TEST(save, el_autoguardado_se_marca_y_se_vuelca) {
   p.flushSave();
   CHECK(!p.savePending());
 }
+
+// Companion identities never borrow dex numbers or Pokemon completion bits.
+TEST(companion, independent_roster_and_care) {
+  for (uint8_t id = 1; id <= COMPANION_COUNT; id++) {
+    mockNvsReset(); mockSetMillis(0);
+    Pet p; p.begin();
+    CHECK(p.chooseCompanion(id));
+    p.eggTap(); p.eggTap(); p.eggTap();
+    CHECK(!p.isEgg()); CHECK(p.isCompanion()); CHECK(!p.isPokemon());
+    CHECK_EQ(p.speciesId, (int16_t)0);
+    CHECK_EQ(p.registeredCount(), (uint16_t)0);
+    CHECK(p.isCompanionRegistered(id)); CHECK(!p.shiny);
+    CHECK_EQ(p.totalMedals, (uint16_t)0);
+    CHECK(!p.hasMedal(MED_FINAL));
+    CHECK_STREQ(p.speciesName(), COMPANIONS[id].name);
+    p.fullness = 20; p.feedBerry(p.favoriteBerry());
+    CHECK_EQ(p.fullness, (uint8_t)55); CHECK(p.eating());
+    p.toggleLight(); CHECK(p.sleeping);
+    advance(p, 10); CHECK_EQ(p.energy, (uint8_t)100);
+    p.toggleLight();
+    p.ageMinutes = FAREWELL_AGE_MIN;
+    CHECK(!p.canEvolveNow()); CHECK(p.canFarewellNow());
+    p.evolve(); CHECK_EQ(p.speciesId, (int16_t)0);
+    p.rename("FRIEND");
+    Pet restored; restored.begin();
+    CHECK_EQ(restored.companionId, id); CHECK(restored.isCompanionRegistered(id));
+    CHECK_STREQ(restored.nick, "FRIEND");
+    CHECK_EQ(restored.registeredCount(), (uint16_t)0);
+  }
+}
+
+TEST(companion, preserves_pokemon_completion_and_ending) {
+  Pet p; makePet(p, 25);
+  p.lastEnd = CER_FAREWELL;
+  p.newEgg(); CHECK(p.chooseCompanion(COMPANION_HACHIWARE));
+  p.rename(""); // save selection before hatch
+  Pet egg; egg.begin();
+  CHECK(egg.isEgg()); CHECK(egg.isCompanion());
+  egg.eggTap(); egg.eggTap(); egg.eggTap();
+  CHECK(egg.isRegistered(25)); CHECK_EQ(egg.registeredCount(), (uint16_t)1);
+  egg.ageMinutes = 9 * MINUTES_PER_LEVEL - 1;
+  advance(egg, 1);
+  CHECK(egg.hasMedal(MED_LV10)); CHECK(!egg.hasMedal(MED_FINAL));
+  CHECK(egg.companionMedals > 0); CHECK_EQ(egg.totalMedals, (uint16_t)0); // companion medals do not enter Pokemon total
+  for (int i = 0; i < 100; i++) {
+    int16_t dex = egg.pickEggSpecies(); CHECK_RANGE(dex, 1, 151);
+    CHECK(DEX_TBL[dex].rarity != R_EVO);
+  }
+  egg.startRunaway(); mockAdvanceMillis(CEREMONY_MS + 1); egg.update(millis());
+  CHECK(egg.isEgg()); CHECK(egg.isCompanion());
+  CHECK_EQ(egg.lastEnd, (uint8_t)CER_FAREWELL);
+  egg.openPetSelection(); egg.chooseStarter(7);
+  egg.eggTap(); egg.eggTap(); egg.eggTap();
+  CHECK(egg.isPokemon()); CHECK_EQ(egg.speciesId, (int16_t)7);
+  CHECK(egg.isRegistered(25)); CHECK(egg.isRegistered(7));
+  CHECK(egg.isCompanionRegistered(COMPANION_HACHIWARE));
+}
+
+TEST(companion, rejects_invalid_or_live_selection) {
+  mockNvsReset(); Pet p; p.begin();
+  CHECK(!p.chooseCompanion(0)); CHECK(!p.chooseCompanion(4)); CHECK(!p.chooseCompanion(255));
+  p.eggTap(); p.eggTap(); p.eggTap(); CHECK(p.isEgg()); // cannot bypass roster choice
+  p.chooseStarter(4); p.eggTap(); p.eggTap(); p.eggTap();
+  CHECK(!p.chooseCompanion(1));
+  p.chooseStarter(7); CHECK_EQ(p.speciesId, (int16_t)4);
+}
+
+TEST(companion, return_to_pokemon_uses_egg_rules_and_shiny_roll) {
+  Pet p; makePet(p, 25); p.newEgg(); p.chooseCompanion(1);
+  p.eggTap(); p.eggTap(); p.eggTap(); p.newEgg();
+  p.lastEnd = CER_RUNAWAY;
+  mockForceRandom(0); // the shiny roll succeeds when returning to Pokemon
+  p.choosePokemonEgg();
+  mockClearForcedRandom();
+  p.eggTap(); p.eggTap(); p.eggTap();
+  CHECK(p.isPokemon()); CHECK(p.shiny);
+  CHECK_EQ(DEX_TBL[p.speciesId].rarity, (uint8_t)R_COMUN);
+  CHECK(p.isShinyRegistered(p.speciesId));
+}
+
+TEST(companion, opening_selector_does_not_reroll_existing_pokemon_egg) {
+  Pet p; makePet(p, 25); p.newEgg(); p.chooseStarter(143);
+  p.openPetSelection(); p.choosePokemonEgg();
+  p.eggTap(); p.eggTap(); p.eggTap();
+  CHECK_EQ(p.speciesId, (int16_t)143);
+}

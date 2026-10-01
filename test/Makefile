@@ -15,7 +15,7 @@ SOURCES := main.cpp shim/shim.cpp test_pet.cpp test_dex.cpp test_i18n.cpp \
 .PHONY: all run clean asan
 all: run
 
-$(BIN): $(SOURCES) framework.h shim/Arduino.h shim/Preferences.h
+$(BIN): $(SOURCES) framework.h shim/Arduino.h shim/Preferences.h $(SRC_DIR)/pet.h $(SRC_DIR)/companions.h $(SRC_DIR)/dex.h
 	@mkdir -p $(BUILD)
 	$(CXX) $(CXXFLAGS) -I shim -o $@ $(SOURCES) $(LDFLAGS)
 
