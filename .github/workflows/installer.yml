@@ -1,0 +1,48 @@
+name: Browser installer
+on:
+  push:
+    branches: [chiikawa-companions]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: companion-pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: pip install pillow ruff
+      - run: ./test/run_tests.sh --asan
+      - run: python3 tools/test_i18n_formats.py
+      - run: ruff check tools/
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core and libraries
+        run: |
+          arduino-cli config init --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.10
+          arduino-cli lib install "GFX Library for Arduino" SensorLib XPowersLib U8g2
+      - name: Build firmware and complete sprite bundle
+        run: bash tools/build_web.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: web
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish installer
+        id: deployment
+        uses: actions/deploy-pages@v4
