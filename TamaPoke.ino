@@ -22,6 +22,8 @@
 #include "rtcbat.h"
 #include "i18n.h"
 #include "audio.h"
+#include "pet_select_ui.h"
+#include "companion_previews.h"
 
 // Version del firmware. Subir este numero en cada release (y manifest.json para
 // el instalador web). Se muestra en la pantalla de ajustes y por serie al arrancar.
@@ -136,9 +138,6 @@ static const uint16_t STARS[][2] = { {120,140},{330,120},{370,210},{95,230},{280
 bool wasPressed = false;
 // eleccion de inicial (primera partida): Bulbasaur / Charmander / Squirtle, 3 filas
 static const int16_t STARTER_DEX[3] = { 1, 4, 7 };
-#define STARTER_ROW_Y 110
-#define STARTER_ROW_H 70
-#define STARTER_ROW_GAP 8
 // boton-CTA de evolucion (centrado, mitad de pantalla)
 #define EVO_BTN_W 256
 #define EVO_BTN_H 64
@@ -606,21 +605,20 @@ void onSwipe(int dir) {
 void onTap(int16_t x, int16_t y) {
   // Serial.printf("TOUCH %d %d\n", x, y);  // diagnostico (silenciado: satura el log)
   if (pet.awaitingStarter()) {  // roster selection; Pokemon and companions are separate
-    if (x >= 93 && x <= 373 && y >= 360 && y <= 400) {
+    if (PET_SELECT_ROSTER.contains(x, y, PET_SELECT_ROSTER_MARGIN)) {
       companionSelect = !companionSelect;
       sfxPlay(SFX_TAP);
       return;
     }
     if (!companionSelect && pet.registeredCount() > 0) {
-      if (x >= 70 && x <= 396 && y >= STARTER_ROW_Y && y <= STARTER_ROW_Y + STARTER_ROW_H) {
+      if (petSelectRow(0).contains(x, y, PET_SELECT_ROW_MARGIN)) {
         pet.choosePokemonEgg();
         sfxPlay(SFX_TAP);
       }
       return;
     }
     for (int i = 0; i < 3; i++) {
-      int ry = STARTER_ROW_Y + i * (STARTER_ROW_H + STARTER_ROW_GAP);
-      if (x >= 70 && x <= 396 && y >= ry && y <= ry + STARTER_ROW_H) {
+      if (petSelectRow(i).contains(x, y, PET_SELECT_ROW_MARGIN)) {
         if (companionSelect) pet.chooseCompanion(i + 1);
         else pet.chooseStarter(STARTER_DEX[i]);
         sfxPlay(SFX_TAP);
@@ -850,6 +848,20 @@ void drawScene(uint8_t biome, uint32_t now, bool night) {
 }
 
 // primera partida: elige inicial entre Bulbasaur / Charmander / Squirtle
+void drawCompanionPreview(uint8_t id, int cx, int ground) {
+  if (id < 1 || id > COMPANION_COUNT) return;
+  const CompanionPreview &p = COMPANION_PREVIEWS[id - 1];
+  // Same Idle timing and pixels as the SD sprite; available before SD loading.
+  uint8_t frame = millis() % 1320 >= 1200 ? 1 : 0;
+  const uint8_t *pixels = p.pixels + frame * 64 * 72;
+  for (int y = 0; y < 72; y++) {
+    for (int x = 0; x < 64; x++) {
+      uint8_t index = pixels[y * 64 + x];
+      if (index != 255) gfx->drawPixel(cx - 32 + x, ground - 68 + y, p.palette[index]);
+    }
+  }
+}
+
 void renderStarterSelect() {
   gfx->fillScreen(RGB565_BLACK);
   gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
@@ -862,12 +874,13 @@ void renderStarterSelect() {
   for (int i = 0; i < (normalEgg ? 1 : 3); i++) {
     int16_t d = STARTER_DEX[i];
     uint16_t accent = companionSelect ? COMPANIONS[i + 1].traits.accent : DEX_TBL[d].accent;
-    int ry = STARTER_ROW_Y + i * (STARTER_ROW_H + STARTER_ROW_GAP);
-    gfx->fillRoundRect(70, ry, 326, STARTER_ROW_H, 14, lerp565(accent, UI_WHITE, 6, 8));
-    gfx->drawRoundRect(70, ry, 326, STARTER_ROW_H, 14, accent);
+    const PetSelectRect row = petSelectRow(i);
+    int ry = row.y;
+    gfx->fillRoundRect(row.x, row.y, row.w, row.h, 14, lerp565(accent, UI_WHITE, 6, 8));
+    gfx->drawRoundRect(row.x, row.y, row.w, row.h, 14, accent);
     const uint8_t *th = companionSelect || normalEgg ? nullptr : thumbs.get(d);     // miniatura del inicial (si la SD esta lista)
     if (th) drawThumb(th, 76, ry - 5, 3, false);
-    if (companionSelect) drawCompanion(i + 1, 120, ry + 68, 1, MOOD_HAPPY);
+    if (companionSelect) drawCompanionPreview(i + 1, 120, ry + 64);
     gfx->setTextColor(UI_INK);
     setSize(3);
     setCur(normalEgg ? 130 : 178, ry + 24);
@@ -876,11 +889,12 @@ void renderStarterSelect() {
       setSize(1); setCur(178, ry + 50); printT("Met before");
     }
   }
-  gfx->fillRoundRect(93, 360, 280, 40, 12, UI_TRACK);
+  const PetSelectRect roster = PET_SELECT_ROSTER;
+  gfx->fillRoundRect(roster.x, roster.y, roster.w, roster.h, 12, UI_TRACK);
   gfx->setTextColor(UI_WHITE);
   setSize(2);
   const char *switchLabel = companionSelect ? "Pokemon roster" : "Chiikawa companions";
-  setCur(centerX(switchLabel, 2), 372);
+  setCur(centerX(switchLabel, 2), roster.y + (roster.h - 16) / 2);
   printT(switchLabel);
   gfx->flush();
 }
