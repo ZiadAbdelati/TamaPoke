@@ -19,6 +19,37 @@ SEQUENCES = {
 }
 
 
+def build_previews():
+    """Embed the actual idle pair for the chooser, including boards without SD."""
+    lines = ['// Generated from web/*-sheet.png by tools/build_companion_assets.py.',
+             '#pragma once', '#include <stdint.h>',
+             'struct CompanionPreview { const uint16_t *palette; const uint8_t *pixels; };']
+    for slug in SLUGS:
+        sheet = Image.open(ROOT / 'web' / f'{slug}-sheet.png').convert('RGBA')
+        palette, indices = [], []
+        for frame in range(2):
+            for r, g, b, a in sheet.crop((frame*64, 0, (frame+1)*64, 72)).getdata():
+                if a < 128:
+                    indices.append(255)
+                    continue
+                color = (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)
+                if color not in palette:
+                    palette.append(color)
+                if len(palette) > 255:
+                    raise ValueError('chooser preview exceeds 255 colors')
+                indices.append(palette.index(color))
+        lines.append(f'static const uint16_t PREVIEW_{slug}_PAL[] = {{' +
+                     ','.join(str(c) for c in palette) + '};')
+        lines.append(f'static const uint8_t PREVIEW_{slug}_PIX[] = {{')
+        lines += [','.join(str(c) for c in indices[i:i+64]) + ','
+                  for i in range(0, len(indices), 64)]
+        lines.append('};')
+    lines.append('static const CompanionPreview COMPANION_PREVIEWS[] = {')
+    lines += [f'  {{PREVIEW_{slug}_PAL, PREVIEW_{slug}_PIX}},' for slug in SLUGS]
+    lines.append('};')
+    (ROOT / 'companion_previews.h').write_text('\n'.join(lines) + '\n')
+
+
 def build(slug):
     sheet = Image.open(ROOT / 'web' / f'{slug}-sheet.png').convert('RGBA')
     if sheet.size != (256, 216):
@@ -54,5 +85,6 @@ def build(slug):
 
 
 if __name__ == '__main__':
+    build_previews()
     for companion in SLUGS:
         build(companion)
